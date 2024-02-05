@@ -18,12 +18,14 @@ import model
 from detection_layers.modules import MultiBoxLoss
 from dataset import DeepfakeDataset
 from lib.util import load_config, update_learning_rate, my_collate
-
+import random
+import numpy as np
 
 def args_func():
     parser = argparse.ArgumentParser()
     parser.add_argument('--cfg', type=str, help='The path to the config.', default='./configs/bin_caddm_train.cfg')
     parser.add_argument('--ckpt', type=str, help='The checkpoint of the pretrained model.', default=None)
+    parser.add_argument('--seed', type=str, help='The seed to use.', default=5)
     args = parser.parse_args()
     return args
 
@@ -107,7 +109,7 @@ def train():
                     "accuracy": [accuracy(preds=labels_pred.cpu(), target=labels.cpu(), task="binary").item()],
                 })]
                 ) 
-            metrics_per_epoch = metrics[metrics['epoch'] == epoch].drop("phase", axis="columns").mean()
+            metrics_per_epoch = metrics[(metrics['epoch'] == epoch) & ((metrics['phase'] == 'train'))].drop("phase", axis="columns").mean()
             progress_bar.set_description(f"train epoch {epoch}: acc={metrics_per_epoch['accuracy'] * 100:.1f}%, loss={metrics_per_epoch['loss']:.3f}")
             
     def val_epoch(net, dataloader, device, metrics=None, epoch=None):
@@ -138,10 +140,13 @@ def train():
                     "accuracy": [accuracy(preds=labels_pred.cpu(), target=labels.cpu(), task="binary").item()],
                 })]
                 ) 
-            metrics_per_epoch = metrics[metrics['epoch'] == epoch].drop("phase", axis="columns").mean()
+            metrics_per_epoch = metrics[(metrics['epoch'] == epoch) & ((metrics['phase'] == 'val'))].drop("phase", axis="columns").mean()
             progress_bar.set_description(f"val epoch {epoch}: acc={metrics_per_epoch['accuracy'] * 100:.1f}%, loss={metrics_per_epoch['loss']:.3f}")
         
     args = args_func()
+    torch.manual_seed(args.seed)
+    random.seed(args.seed)
+    np.random.seed(args.seed)
 
     # load configs
     cfg = load_config(args.cfg)
@@ -170,11 +175,11 @@ def train():
     val_dataset = COCOFakeDataset(coco2014_path=cfg["dataset"]["coco2014_path"], coco_fake_path=cfg["dataset"]["coco_fake_path"], split="val", mode="single", resolution=cfg["train"]["resolution"])
     train_loader = DataLoader(train_dataset,
                               batch_size=cfg['train']['batch_size'],
-                              shuffle=True, num_workers=4,
+                              shuffle=True, num_workers=2,
                               )
     val_loader = DataLoader(val_dataset,
                               batch_size=cfg['train']['batch_size'],
-                              shuffle=False, num_workers=4,
+                              shuffle=False, num_workers=2,
                               )
 
     # start trining.

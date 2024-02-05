@@ -42,6 +42,8 @@ class CADDM(nn.Module):
         # self.inplanes = self.base_model.out_num_features
 
         # self.adm = Artifact_Detection_Module(self.inplanes)
+        for p in self.base_model.parameters():
+            p.requires_grad = False
 
         self.fc = nn.Linear(self.inplanes, num_classes if num_classes >= 3 else 1)
         # self.softmax = nn.Softmax(dim=-1)

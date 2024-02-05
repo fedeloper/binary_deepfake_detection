@@ -4,9 +4,10 @@ import torch
 from torch.utils.data import Dataset
 import torchvision.transforms as T
 from PIL import Image
+from timm.data.constants import IMAGENET_DEFAULT_MEAN, IMAGENET_DEFAULT_STD
 
 class COCOFakeDataset(Dataset):
-    def __init__(self, coco2014_path, coco_fake_path, split, mode="single", resolution=224, norm_mean=[0.5, 0.5, 0.5], norm_std=[0.5, 0.5, 0.5]):
+    def __init__(self, coco2014_path, coco_fake_path, split, mode="single", resolution=224, norm_mean=IMAGENET_DEFAULT_MEAN, norm_std=IMAGENET_DEFAULT_STD):
         assert isdir(coco2014_path), f"got {coco2014_path}"
         assert isdir(coco_fake_path), f"got {coco_fake_path}"
         self.coco2014_path = coco2014_path
@@ -48,7 +49,7 @@ class COCOFakeDataset(Dataset):
         split_path = join(self.coco_fake_path, f"{self.split}2014")
         for folder in sorted(listdir(split_path)):
             for filename in sorted(listdir(join(split_path, folder))):
-                if not filename.endswith(".jpg"):
+                if not filename.lower().endswith(".jpg"):
                     continue
                 data.append({
                     "fake_image_path": join(split_path, folder, filename),
@@ -101,4 +102,15 @@ if __name__=="__main__":
     for mode in ["single", "couple"]:
         dataset = COCOFakeDataset(coco2014_path=coco2014_path, coco_fake_path=coco_fake_path, split="train", mode=mode, resolution=224)
         print(f"sample keys for mode {mode}:", {k: (type(v) if not isinstance(v, torch.Tensor) else v.shape) for k, v in dataset[0].items()})
+        # if mode == "single":
+        #     n_reals = sum([item["is_real"] for item in dataset.items])
+        #     n_fakes = sum([not item["is_real"] for item in dataset.items])
+        #     import matplotlib.pyplot as plt
+        #     plt.bar([0, 1], [n_reals, n_fakes])
+        #     print(n_reals / (n_reals + n_fakes), n_fakes / (n_reals + n_fakes))
+        #     from pprint import pprint
+        #     pprint(dataset.items[:10])
+        #     pprint(dataset.items[-10:])
+        #     plt.show()
+        #     break
     dataset._plot_image(dataset[0]["fake_image"])
