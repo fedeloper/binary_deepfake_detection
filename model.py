@@ -3,7 +3,7 @@ import torch
 from backbones.caddm import CADDM
 
 
-def get(pretrained_model=None, backbone='BNext-T'):
+def get(labels, pretrained_model=None, backbone='BNext-T'):
     """
     load one model
     :param model_path: ./models
@@ -12,16 +12,15 @@ def get(pretrained_model=None, backbone='BNext-T'):
     :param use_cuda: True/False
     :return: model
     """
-    if backbone not in ['BNext-L', 'BNext-T', 'BNext-S','BNext-M',]:
+    if backbone not in ['BNext-L', 'BNext-T', 'BNext-S','BNext-M']:
         raise ValueError("Unsupported type of models!")
 
-    model = CADDM(2, backbone=backbone)
+    model = CADDM(num_classes=labels, backbone=backbone)
 
     if pretrained_model:
         checkpoint = torch.load(pretrained_model)
         model.load_state_dict(checkpoint['network'])
     return model
-
 
 if __name__ == "__main__":
     m = get()

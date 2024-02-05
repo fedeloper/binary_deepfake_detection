@@ -37,26 +37,25 @@ class CADDM(nn.Module):
             print(backbone)
             raise ValueError("Unsupported Backbone!")
         self.base_model.deactive_last_layer=True
-        self.inplanes = self.base_model.out_num_features
+        self.inplanes = self.base_model.fc.in_features
+        self.base_model.fc = nn.Identity()
+        # self.inplanes = self.base_model.out_num_features
 
-        self.adm = Artifact_Detection_Module(self.inplanes)
+        # self.adm = Artifact_Detection_Module(self.inplanes)
 
-        self.fc = nn.Linear(self.inplanes, num_classes)
-
-        self.softmax = nn.Softmax(dim=-1)
+        self.fc = nn.Linear(self.inplanes, num_classes if num_classes >= 3 else 1)
+        # self.softmax = nn.Softmax(dim=-1)
 
     def forward(self, x):
-        batch_num = x.size(0)
-        x, global_feat = self.base_model(x)
+        features = self.base_model(x)
+        logits = self.fc(features)
 
-        # location result, confidence of each anchor, final feature map of adm.
-        loc, cof, adm_final_feat = self.adm(x)
-
-        final_cls_feat = global_feat + adm_final_feat
-        final_cls = self.fc(final_cls_feat.view(batch_num, -1))
-
-        if self.training:
-            return loc, cof, final_cls
-        return self.softmax(final_cls)
-
-# vim: ts=4 sw=4 sts=4 expandtab
+        if self.num_classes >= 3:
+            if self.training:
+                return logits
+            return torch.softmax(logits, dim=-1)
+        else:
+            logits = logits[:, 0]
+            if self.training:
+                return logits
+            return torch.sigmoid(logits)

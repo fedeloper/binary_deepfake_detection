@@ -1,13 +1,18 @@
 #!/usr/bin/env python3
+from pprint import pprint
 import argparse
 from collections import OrderedDict
 import os
+from tqdm import tqdm
+import pandas as pd
 
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
-from torch.utils.data import DataLoader
+from torch.utils.data import Subset, DataLoader
+from torchmetrics.functional.classification import accuracy
+from coco_fake_dataset import COCOFakeDataset
 
 import model
 from detection_layers.modules import MultiBoxLoss
@@ -17,7 +22,7 @@ from lib.util import load_config, update_learning_rate, my_collate
 
 def args_func():
     parser = argparse.ArgumentParser()
-    parser.add_argument('--cfg', type=str, help='The path to the config.', default='./configs/caddm_train.cfg')
+    parser.add_argument('--cfg', type=str, help='The path to the config.', default='./configs/bin_caddm_train.cfg')
     parser.add_argument('--ckpt', type=str, help='The checkpoint of the pretrained model.', default=None)
     args = parser.parse_args()
     return args
@@ -61,90 +66,126 @@ def load_checkpoint(ckpt, net, opt, device):
     opt.load_state_dict(checkpoint['opt_state'])
     base_epoch = int(checkpoint['epoch']) + 1
     return net, opt, base_epoch
-
-
+            
 def train():
+    def training_epoch(net, dataloader, device, accumulation_batches, metrics=None, epoch=None):
+        net.train()
+        if metrics is None:
+            metrics = pd.DataFrame()
+        progress_bar = tqdm(enumerate(dataloader), total=len(dataloader))
+        for i_batch, batch in progress_bar:
+            # lr = update_learning_rate(epoch)
+            # for param_group in optimizer.param_groups:
+            #     param_group['lr'] = lr
+            images = batch["image"].to(device)
+            labels = batch["is_real"][:, 0].float().to(device)
+
+            with torch.cuda.amp.autocast(enabled=True):
+                labels_pred = net(images)
+                loss = F.binary_cross_entropy_with_logits(input=labels_pred, target=labels)
+            # scaler.scale(loss).backward()
+            loss.backward()
+            
+            # gradient accumulation
+            if ((i_batch + 1) % accumulation_batches) == 0:
+                # scaler.unscale_(optimizer)
+                # nn.utils.clip_grad_value_(net.parameters(), 5)
+                # scaler.step(optimizer)
+                optimizer.step()
+                # scaler.update()
+                optimizer.zero_grad()
+
+            # metrics update
+            with torch.no_grad():
+                metrics = pd.concat([
+                    metrics,
+                    pd.DataFrame({
+                    "epoch": [epoch],
+                    "phase": ["train"],
+                    "batch": [i_batch],
+                    "loss": [loss.cpu().item()],
+                    "accuracy": [accuracy(preds=labels_pred.cpu(), target=labels.cpu(), task="binary").item()],
+                })]
+                ) 
+            metrics_per_epoch = metrics[metrics['epoch'] == epoch].drop("phase", axis="columns").mean()
+            progress_bar.set_description(f"train epoch {epoch}: acc={metrics_per_epoch['accuracy'] * 100:.1f}%, loss={metrics_per_epoch['loss']:.3f}")
+            
+    def val_epoch(net, dataloader, device, metrics=None, epoch=None):
+        net.eval()
+        if metrics is None:
+            metrics = pd.DataFrame()
+        progress_bar = tqdm(enumerate(dataloader), total=len(dataloader))
+        for i_batch, batch in progress_bar:
+            # lr = update_learning_rate(epoch)
+            # for param_group in optimizer.param_groups:
+            #     param_group['lr'] = lr
+            images = batch["image"].to(device)
+            labels = batch["is_real"][:, 0].float().to(device)
+
+            with torch.cuda.amp.autocast(enabled=True), torch.no_grad():
+                labels_pred = net(images)
+                loss = F.binary_cross_entropy_with_logits(input=labels_pred, target=labels)
+
+            # metrics update
+            with torch.no_grad():
+                metrics = pd.concat([
+                    metrics,
+                    pd.DataFrame({
+                    "epoch": [epoch],
+                    "phase": ["val"],
+                    "batch": [i_batch],
+                    "loss": [loss.cpu().item()],
+                    "accuracy": [accuracy(preds=labels_pred.cpu(), target=labels.cpu(), task="binary").item()],
+                })]
+                ) 
+            metrics_per_epoch = metrics[metrics['epoch'] == epoch].drop("phase", axis="columns").mean()
+            progress_bar.set_description(f"val epoch {epoch}: acc={metrics_per_epoch['accuracy'] * 100:.1f}%, loss={metrics_per_epoch['loss']:.3f}")
+        
     args = args_func()
 
-    # load conifigs
+    # load configs
     cfg = load_config(args.cfg)
+    pprint(cfg)
 
     # init model.
-    net = model.get(backbone=cfg['model']['backbone'])
-    device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+    net = model.get(labels=cfg["dataset"]["labels"], backbone=cfg['model']['backbone'])
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     net = net.to(device)
-    net = nn.DataParallel(net)
-
-    # loss init
-    det_criterion = MultiBoxLoss(
-        cfg['det_loss']['num_classes'],
-        cfg['det_loss']['overlap_thresh'],
-        cfg['det_loss']['prior_for_matching'],
-        cfg['det_loss']['bkg_label'],
-        cfg['det_loss']['neg_mining'],
-        cfg['det_loss']['neg_pos'],
-        cfg['det_loss']['neg_overlap'],
-        cfg['det_loss']['encode_target'],
-        cfg['det_loss']['use_gpu']
-    )
-    criterion = nn.CrossEntropyLoss()
+    # net = nn.DataParallel(net)
 
     # optimizer init.
     optimizer = optim.AdamW(net.parameters(), lr=1e-3, weight_decay=4e-3)
 
     # load checkpoint if given
     base_epoch = 0
-    if args.ckpt:
-        net, optimzer, base_epoch = load_checkpoint(args.ckpt, net, optimizer, device)
+    # if args.ckpt:
+    #     net, optimzer, base_epoch = load_checkpoint(args.ckpt, net, optimizer, device)
 
     # get training data
-    print(f"Load deepfake dataset from {cfg['dataset']['img_path']}..")
-    train_dataset = DeepfakeDataset('train', cfg)
+    print(f"Load datasets from {cfg['dataset']['coco2014_path']} and {cfg['dataset']['coco_fake_path']}")
+    # train_dataset = DeepfakeDataset('train', cfg)
+    train_dataset = COCOFakeDataset(coco2014_path=cfg["dataset"]["coco2014_path"], coco_fake_path=cfg["dataset"]["coco_fake_path"], split="train", mode="single", resolution=cfg["train"]["resolution"])
+    assert 0 < cfg["train"]["limit_train_batches"] <= 1.0, f"got {cfg['train']['limit_train_batches']}"
+    train_dataset = Subset(train_dataset, torch.randperm(len(train_dataset))[:int(len(train_dataset) * cfg["train"]["limit_train_batches"])])
+    val_dataset = COCOFakeDataset(coco2014_path=cfg["dataset"]["coco2014_path"], coco_fake_path=cfg["dataset"]["coco_fake_path"], split="val", mode="single", resolution=cfg["train"]["resolution"])
     train_loader = DataLoader(train_dataset,
                               batch_size=cfg['train']['batch_size'],
                               shuffle=True, num_workers=4,
-                              collate_fn=my_collate
+                              )
+    val_loader = DataLoader(val_dataset,
+                              batch_size=cfg['train']['batch_size'],
+                              shuffle=False, num_workers=4,
                               )
 
     # start trining.
-    net.train()
+    metrics = pd.DataFrame()
     for epoch in range(base_epoch, cfg['train']['epoch_num']):
-        for index, (batch_data, batch_labels) in enumerate(train_loader):
+        training_epoch(net=net, dataloader=train_loader, device=device, accumulation_batches=cfg["train"]["accumulation_batches"], epoch=epoch, metrics=metrics)
+        val_epoch(net=net, dataloader=val_loader, device=device, epoch=epoch, metrics=metrics)
 
-            lr = update_learning_rate(epoch)
-            for param_group in optimizer.param_groups:
-                param_group['lr'] = lr
-
-            labels, location_labels, confidence_labels = batch_labels
-            labels = labels.long().to(device)
-            location_labels = location_labels.to(device)
-            confidence_labels = confidence_labels.long().to(device)
-
-            optimizer.zero_grad()
-            locations, confidence, outputs = net(batch_data)
-            loss_end_cls = criterion(outputs, labels)
-            loss_l, loss_c = det_criterion(
-                (locations, confidence),
-                confidence_labels, location_labels
-            )
-            acc = sum(outputs.max(-1).indices == labels).item() / labels.shape[0]
-            det_loss = 0.1 * (loss_l + loss_c)
-            loss = det_loss + loss_end_cls
-            loss.backward()
-
-            torch.nn.utils.clip_grad_value_(net.parameters(), 2)
-            optimizer.step()
-
-            outputs = [
-                "e:{},iter: {}".format(epoch, index),
-                "acc: {:.2f}".format(acc),
-                "loss: {:.8f} ".format(loss.item()),
-                "lr:{:.4g}".format(lr),
-            ]
-            print(" ".join(outputs))
-        save_checkpoint(net, optimizer,
-                        cfg['model']['save_path'],
-                        epoch)
+        # save_checkpoint(net, optimizer,
+        #                 cfg['model']['save_path'],
+        #                 epoch)
 
 
 if __name__ == "__main__":
