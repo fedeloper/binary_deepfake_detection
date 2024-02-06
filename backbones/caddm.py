@@ -21,12 +21,13 @@ def remove_data_parallel(old_state_dict):
     return new_state_dict
 class CADDM(nn.Module):
 
-    def __init__(self, num_classes, backbone='BNext-T'):
+    def __init__(self, num_classes, backbone='BNext-T', freeze_backbone=True):
         super(CADDM, self).__init__()
 
         self.num_classes = num_classes
-        self.backbone = backbone
         
+        # loads the backbone
+        self.backbone = backbone
         size_map = {"BNext-T": "tiny", "BNext-S": "small", "BNext-M": "middle", "BNext-L": "large"}
         if backbone in size_map:
             size = size_map[backbone]
@@ -36,27 +37,34 @@ class CADDM(nn.Module):
         else:
             print(backbone)
             raise ValueError("Unsupported Backbone!")
-        self.base_model.deactive_last_layer=True
+        
+        # disables the last layer of the backbone
         self.inplanes = self.base_model.fc.in_features
+        self.base_model.deactive_last_layer=True
         self.base_model.fc = nn.Identity()
-        # self.inplanes = self.base_model.out_num_features
 
-        # self.adm = Artifact_Detection_Module(self.inplanes)
-        for p in self.base_model.parameters():
-            p.requires_grad = False
+        # eventually freeze the backbone
+        if freeze_backbone:
+            for p in self.base_model.parameters():
+                p.requires_grad = False
 
+        # add a new linear layer after the backbone
         self.fc = nn.Linear(self.inplanes, num_classes if num_classes >= 3 else 1)
-        # self.softmax = nn.Softmax(dim=-1)
 
     def forward(self, x):
+        # extracts the features
         features = self.base_model(x)
+        # outputs the logits
         logits = self.fc(features)
 
+        # returns the logits in the appropriate manner
         if self.num_classes >= 3:
+            # multiclass case
             if self.training:
                 return logits
             return torch.softmax(logits, dim=-1)
         else:
+            # binary case
             logits = logits[:, 0]
             if self.training:
                 return logits
