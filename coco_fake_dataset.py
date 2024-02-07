@@ -91,26 +91,59 @@ class COCOFakeDataset(Dataset):
     @staticmethod
     def _plot_image(image):
         import matplotlib.pyplot as plt
-        plt.imshow(image.transpose(0, 2))
+        import einops
+        plt.imshow(einops.rearrange(image, "c h w -> h w c"))
         plt.show()
+        plt.close()
+        
+    def _plot_labels_distribution(self, save_path=None):
+        import matplotlib.pyplot as plt
+        
+        # Count the occurrences of each label
+        label_counts = {"Real": 0, "Fake": 0}
+        if self.mode == "single":
+            for item in self.items:
+                if item["is_real"]:
+                    label_counts["Real"] += 1
+                else:
+                    label_counts["Fake"] += 1
+        else:
+            label_counts["Fake"] = len(self.items)
+            label_counts["Real"] = len({item["real_image_path"] for item in self.items})
+        
+        # Data for plotting
+        labels = list(label_counts.keys())
+        counts = list(label_counts.values())
+        
+        # Creating the bar chart
+        plt.figure(figsize=(10, 6))
+        plt.bar(labels, counts, color=['blue', 'orange'])
+        
+        plt.xlabel('Label')
+        plt.ylabel('Count')
+        plt.title(f'[COCO-Fake] Distribution of labels for split {self.split}')
+        plt.xticks(labels)
+        plt.yticks(range(0, max(counts) + 1, max(counts) // 10))
+        
+        for i, v in enumerate(counts):
+            plt.text(i, v + 0.5, str(v), ha='center', va='bottom')
+        
+        plt.tight_layout()
+        if save_path:
+            plt.savefig(save_path)
+        else:
+            plt.show()
         plt.close()
 
 
 if __name__=="__main__":
+    import random
+    
     coco2014_path = "../../datasets/coco2014"
     coco_fake_path = "../../datasets/fake_coco"
-    for mode in ["single", "couple"]:
-        dataset = COCOFakeDataset(coco2014_path=coco2014_path, coco_fake_path=coco_fake_path, split="train", mode=mode, resolution=224)
-        print(f"sample keys for mode {mode}:", {k: (type(v) if not isinstance(v, torch.Tensor) else v.shape) for k, v in dataset[0].items()})
-        # if mode == "single":
-        #     n_reals = sum([item["is_real"] for item in dataset.items])
-        #     n_fakes = sum([not item["is_real"] for item in dataset.items])
-        #     import matplotlib.pyplot as plt
-        #     plt.bar([0, 1], [n_reals, n_fakes])
-        #     print(n_reals / (n_reals + n_fakes), n_fakes / (n_reals + n_fakes))
-        #     from pprint import pprint
-        #     pprint(dataset.items[:10])
-        #     pprint(dataset.items[-10:])
-        #     plt.show()
-        #     break
-    dataset._plot_image(dataset[0]["fake_image"])
+    for split in ["train", "val"]:
+        for mode in ["single", "couple"]:
+            dataset = COCOFakeDataset(coco2014_path=coco2014_path, coco_fake_path=coco_fake_path, split=split, mode=mode, resolution=224)
+            print(f"sample keys for mode {mode}:", {k: (type(v) if not isinstance(v, torch.Tensor) else v.shape) for k, v in dataset[0].items()})
+        dataset._plot_image(dataset[random.randint(0, len(dataset))]["fake_image"])
+        dataset._plot_labels_distribution(save_path=f"_{split}_labels_cocofake.png")

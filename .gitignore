@@ -1,3 +1,4 @@
 pretrained/*.tar
 pretrained/*.pth
 *.pyc
+_*
