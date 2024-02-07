@@ -68,7 +68,7 @@ class COCOFakeDataset(Dataset):
             T.Resize(self.resolution + self.resolution // 8, interpolation=T.InterpolationMode.BILINEAR),
             T.CenterCrop(self.resolution),
             T.ToTensor(),
-            T.Normalize(mean=self.norm_mean, std=self.norm_std),
+            # T.Normalize(mean=self.norm_mean, std=self.norm_std),
         ])(image)
         return image
     

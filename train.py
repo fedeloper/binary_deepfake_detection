@@ -13,6 +13,7 @@ import torch.optim as optim
 from torch.utils.data import Subset, DataLoader
 from torchmetrics.functional.classification import accuracy
 from coco_fake_dataset import COCOFakeDataset
+from dffd_dataset import DFFDDataset
 
 import model
 from detection_layers.modules import MultiBoxLoss
@@ -84,6 +85,7 @@ def train():
 
             with torch.cuda.amp.autocast(enabled=True):
                 labels_pred = net(images)
+                # TODO handle class imbalance
                 loss = F.binary_cross_entropy_with_logits(input=labels_pred, target=labels)
             # scaler.scale(loss).backward()
             loss.backward()
@@ -167,17 +169,40 @@ def train():
     #     net, optimzer, base_epoch = load_checkpoint(args.ckpt, net, optimizer, device)
 
     # get training data
-    print(f"Load datasets from {cfg['dataset']['coco2014_path']} and {cfg['dataset']['coco_fake_path']}")
-    # train_dataset = DeepfakeDataset('train', cfg)
-    train_dataset = COCOFakeDataset(coco2014_path=cfg["dataset"]["coco2014_path"], coco_fake_path=cfg["dataset"]["coco_fake_path"], split="train", mode="single", resolution=cfg["train"]["resolution"])
+    if cfg["dataset"]["name"] == "coco_fake":
+        print(f"Load COCO-Fake datasets from {cfg['dataset']['coco2014_path']} and {cfg['dataset']['coco_fake_path']}")
+        # train_dataset = DeepfakeDataset('train', cfg)
+        train_dataset = COCOFakeDataset(coco2014_path=cfg["dataset"]["coco2014_path"], coco_fake_path=cfg["dataset"]["coco_fake_path"], split="train", mode="single", resolution=cfg["train"]["resolution"])
+        # splits the training set into training and validation
+        # TODO discuss about train/val split
+        real_indices = [i for i in range(len(train_dataset)) if train_dataset.items[i]["is_real"]]
+        fake_indices = [i for i in range(len(train_dataset)) if not train_dataset.items[i]["is_real"]]
+        assert sorted(real_indices + fake_indices) == list(range(len(train_dataset))), "indices mismatch"
+        random.shuffle(real_indices)
+        random.shuffle(fake_indices)
+        train_dataset = Subset(train_dataset, real_indices[:int(len(real_indices) * 0.8)] + fake_indices[:int(len(fake_indices) * 0.8)])
+        val_dataset = Subset(train_dataset, real_indices[int(len(real_indices) * 0.8):] + fake_indices[int(len(fake_indices) * 0.8):])
+        # use the val set as test
+        test_dataset = COCOFakeDataset(coco2014_path=cfg["dataset"]["coco2014_path"], coco_fake_path=cfg["dataset"]["coco_fake_path"], split="val", mode="single", resolution=cfg["train"]["resolution"])
+    elif cfg["dataset"]["name"] == "dffd":
+        print(f"Load DFFD dataset from {cfg['dataset']['dffd_path']}")
+        train_dataset = DFFDDataset(dataset_path=cfg["dataset"]["dffd_path"], split="train", resolution=cfg["train"]["resolution"])
+        val_dataset = DFFDDataset(dataset_path=cfg["dataset"]["dffd_path"], split="val", resolution=cfg["train"]["resolution"])
+        test_dataset = DFFDDataset(dataset_path=cfg["dataset"]["dffd_path"], split="test", resolution=cfg["train"]["resolution"])
+    # eventually reduce the size of the training set
     assert 0 < cfg["train"]["limit_train_batches"] <= 1.0, f"got {cfg['train']['limit_train_batches']}"
     train_dataset = Subset(train_dataset, torch.randperm(len(train_dataset))[:int(len(train_dataset) * cfg["train"]["limit_train_batches"])])
-    val_dataset = COCOFakeDataset(coco2014_path=cfg["dataset"]["coco2014_path"], coco_fake_path=cfg["dataset"]["coco_fake_path"], split="val", mode="single", resolution=cfg["train"]["resolution"])
+    
+    # loads the dataloaders
     train_loader = DataLoader(train_dataset,
                               batch_size=cfg['train']['batch_size'],
                               shuffle=True, num_workers=2,
                               )
     val_loader = DataLoader(val_dataset,
+                              batch_size=cfg['train']['batch_size'],
+                              shuffle=False, num_workers=2,
+                              )
+    test_loader = DataLoader(test_dataset,
                               batch_size=cfg['train']['batch_size'],
                               shuffle=False, num_workers=2,
                               )

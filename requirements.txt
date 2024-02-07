@@ -5,6 +5,7 @@ pyarrow
 opencv-python
 scipy
 scikit-learn
+scikit-image
 einops
 timm
 torch
