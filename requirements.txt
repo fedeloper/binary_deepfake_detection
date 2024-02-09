@@ -1,6 +1,7 @@
 matplotlib
 pandas 
 pyarrow
+wandb
 
 opencv-python
 scipy
@@ -12,3 +13,4 @@ torch
 torchvision
 torchinfo
 torchmetrics
+lightning

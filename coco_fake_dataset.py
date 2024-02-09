@@ -2,12 +2,11 @@ from os import listdir
 from os.path import exists, isdir, join
 import torch
 from torch.utils.data import Dataset
-import torchvision.transforms as T
+import torchvision.transforms.v2 as T
 from PIL import Image
-from timm.data.constants import IMAGENET_DEFAULT_MEAN, IMAGENET_DEFAULT_STD
 
 class COCOFakeDataset(Dataset):
-    def __init__(self, coco2014_path, coco_fake_path, split, mode="single", resolution=224, norm_mean=IMAGENET_DEFAULT_MEAN, norm_std=IMAGENET_DEFAULT_STD):
+    def __init__(self, coco2014_path, coco_fake_path, split, mode="single", resolution=224):
         assert isdir(coco2014_path), f"got {coco2014_path}"
         assert isdir(coco_fake_path), f"got {coco_fake_path}"
         self.coco2014_path = coco2014_path
@@ -39,10 +38,6 @@ class COCOFakeDataset(Dataset):
 
         assert isinstance(resolution, int) and resolution >= 1, f"got {resolution}"
         self.resolution = resolution
-        assert len(norm_mean) == 3
-        self.norm_mean = norm_mean
-        assert len(norm_std) == 3
-        self.norm_std = norm_std
 
     def parse_datasets(self):
         data = []
@@ -64,12 +59,26 @@ class COCOFakeDataset(Dataset):
 
     def read_image(self, path):
         image = Image.open(path).convert('RGB')
-        image = T.Compose([
-            T.Resize(self.resolution + self.resolution // 8, interpolation=T.InterpolationMode.BILINEAR),
-            T.CenterCrop(self.resolution),
-            T.ToTensor(),
-            # T.Normalize(mean=self.norm_mean, std=self.norm_std),
-        ])(image)
+        if self.split == "train":
+            transforms = T.Compose([
+                T.Resize(self.resolution + self.resolution // 8, interpolation=T.InterpolationMode.BILINEAR),
+                T.RandomHorizontalFlip(p=0.5),
+                T.RandomVerticalFlip(p=0.5),
+                T.RandomChoice([
+                    T.RandomRotation(degrees=(-90, -90)),
+                    T.RandomRotation(degrees=(90, 90)),
+                    ], p=0.5),
+                T.RandomCrop(self.resolution),
+                T.ColorJitter(brightness=0.2, contrast=0.2, saturation=0.2, hue=0.2),
+                T.ToTensor(),
+                ])
+        else:
+            transforms = T.Compose([
+                T.Resize(self.resolution + self.resolution // 8, interpolation=T.InterpolationMode.BILINEAR),
+                T.CenterCrop(self.resolution),
+                T.ToTensor(),
+            ])
+        image = transforms(image)
         return image
     
     def __getitem__(self, i):

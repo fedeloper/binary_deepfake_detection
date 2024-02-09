@@ -4,30 +4,32 @@ import torch
 from collections import OrderedDict
 import cv2 as cv
 import numpy as np 
-import multiprocessing as mp
 import einops
 from skimage import feature
 
 import torch
 import torch.nn as nn
-import torchvision.transforms as T
+from torch import optim
+import torch.nn.functional as F
+from torchmetrics.functional.classification import accuracy, auroc
 import timm
+import lightning as L
 from BNext.src.bnext import BNext
 
 # from backbones.caddm import CADDM
 
 
 
-def get(labels, pretrained_model=None, backbone='BNext-T', freeze_backbone=True, add_magnitude_channel=True, add_fft_channel=True, add_lbp_channel=True):
+def get(labels, pretrained_model=None, backbone='BNext-T', freeze_backbone=True, add_magnitude_channel=True, add_fft_channel=True, add_lbp_channel=True, pos_weight=True):
     if backbone not in ['BNext-L', 'BNext-T', 'BNext-S','BNext-M']:
         raise ValueError("Unsupported type of models!")
 
     model = CADDM(num_classes=labels, backbone=backbone, freeze_backbone=freeze_backbone, 
                   add_magnitude_channel=add_magnitude_channel, add_fft_channel=add_fft_channel, add_lbp_channel=add_lbp_channel)
 
-    if pretrained_model:
-        checkpoint = torch.load(pretrained_model)
-        model.load_state_dict(checkpoint['network'])
+    # if pretrained_model:
+    #     checkpoint = torch.load(pretrained_model)
+    #     model.load_state_dict(checkpoint['network'])
     return model
 
 def remove_data_parallel(old_state_dict):
@@ -39,13 +41,16 @@ def remove_data_parallel(old_state_dict):
     
     return new_state_dict
 
-class CADDM(nn.Module):
+class CADDM(L.LightningModule):
 
     def __init__(self, num_classes, backbone='BNext-T', 
-                 freeze_backbone=True, add_magnitude_channel=True, add_fft_channel=True, add_lbp_channel=True):
+                 freeze_backbone=True, add_magnitude_channel=True, add_fft_channel=True, add_lbp_channel=True,
+                 learning_rate=1e-4, pos_weight=1.):
         super(CADDM, self).__init__()
 
         self.num_classes = num_classes
+        self.learning_rate = learning_rate
+        self.epoch_outs = []
         
         # loads the backbone
         self.backbone = backbone
@@ -68,6 +73,9 @@ class CADDM(nn.Module):
         self.add_lbp_channel = add_lbp_channel
         self.new_channels = sum([self.add_magnitude_channel, self.add_fft_channel, self.add_lbp_channel])
         
+        # loss parameters
+        self.pos_weight = pos_weight
+        
         if self.new_channels > 0:
             self.adapter = nn.Conv2d(in_channels=3+self.new_channels, out_channels=3, 
                                      kernel_size=3, stride=1, padding=1)
@@ -80,13 +88,41 @@ class CADDM(nn.Module):
         self.base_model.fc = nn.Identity()
 
         # eventually freeze the backbone
-        if freeze_backbone:
+        self.freeze_backbone = freeze_backbone
+        if self.freeze_backbone:
             for p in self.base_model.parameters():
                 p.requires_grad = False
 
         # add a new linear layer after the backbone
         self.fc = nn.Linear(self.inplanes, num_classes if num_classes >= 3 else 1)
+    
+    def forward(self, x):
+        outs = {}
+        # eventually concat the edge sharpness to the input image in the channel dimension
+        if self.add_magnitude_channel or self.add_fft_channel or self.add_lbp_channel:
+            x = self.add_new_channels(x)
 
+        # extracts the features
+        x_adapted = self.adapter(x)
+        
+        # normalizes the input image
+        x_adapted = (x_adapted - torch.as_tensor(timm.data.constants.IMAGENET_DEFAULT_MEAN, device=self.device).view(1, -1, 1, 1)) / torch.as_tensor(timm.data.constants.IMAGENET_DEFAULT_STD, device=self.device).view(1, -1, 1, 1)
+        features = self.base_model(x_adapted)
+        
+        # outputs the logits
+        outs["logits"] = self.fc(features)
+        return outs
+    
+    def configure_optimizers(self):
+        modules_to_train = [self.adapter, self.fc]
+        if not self.freeze_backbone:
+            modules_to_train.append(self.base_model)
+        optimizer = optim.AdamW(
+            [parameter for module in modules_to_train for parameter in module.parameters()], 
+            lr=self.learning_rate,
+            )
+        return optimizer
+    
     def _add_new_channels_worker(self, image):
         # convert the image to grayscale
         gray = cv.cvtColor((image * 255).astype(np.uint8), cv.COLOR_BGR2GRAY)
@@ -105,14 +141,14 @@ class CADDM(nn.Module):
         if self.add_fft_channel:
             f = np.fft.fft2(gray)
             fshift = np.fft.fftshift(f)
-            fft_spectrum = 20*np.log(np.abs(fshift))
+            fft_spectrum = 20*np.log(np.abs(fshift) + 1e-9)
             new_channels.append(fft_spectrum)
         
         #if localbinary pattern is required, calculate it
         if self.add_lbp_channel:
             lbp = feature.local_binary_pattern(gray, 3, 6, method='uniform')
             new_channels.append(lbp)
-        #TODO is it correct to divide by 255 here?
+
         new_channels = np.stack(new_channels, axis=2) / 255
         return new_channels
         
@@ -120,12 +156,8 @@ class CADDM(nn.Module):
         device = images.device
         #copy the input image to avoid modifying the originalu
         images_copied = einops.rearrange(images.clone().cpu().numpy(), "b c h w -> b h w c")
-        # turns the image to int
-        # images_copied = (images_copied * 255).astype(int)
         
         # parallelize over each image in the batch using pool
-        # with mp.Pool(mp.cpu_count()) as pool:
-        #     new_channels = np.stack(pool.map(self._edge_sharpness_worker, images_copied), axis=0)
         new_channels = np.stack([self._add_new_channels_worker(image) for image in images_copied], axis=0)
         
         # concatenates the new channels to the input image in the channel dimension
@@ -134,31 +166,64 @@ class CADDM(nn.Module):
         images_copied = einops.rearrange(torch.from_numpy(images_copied).float().to(device), "b h w c -> b c h w")
         return images_copied
     
-    def forward(self, x):
-        # eventually concat the edge sharpness to the input image in the channel dimension
-        if self.add_magnitude_channel or self.add_fft_channel or self.add_lbp_channel:
-            x = self.add_new_channels(x)
-
-        # extracts the features
-        x_adapted = self.adapter(x)
-        # normalizes the input image
-        x_adapted = T.Normalize(mean=timm.data.constants.IMAGENET_DEFAULT_MEAN, std=timm.data.constants.IMAGENET_DEFAULT_STD)(x_adapted)
-        features = self.base_model(x_adapted)
-        # outputs the logits
-        logits = self.fc(features)
-
-        # returns the logits in the appropriate manner
-        if self.num_classes >= 3:
-            # multiclass case
-            if self.training:
-                return logits
-            return torch.softmax(logits, dim=-1)
+    def on_train_epoch_start(self):
+        self._on_epoch_start()
+        
+    def on_test_epoch_start(self):
+        self._on_epoch_start()
+        
+    def training_step(self, batch, i_batch):
+        return self.step(batch, i_batch)
+    
+    def validation_step(self, batch, i_batch):
+        return self.step(batch, i_batch)
+    
+    def test_step(self, batch, i_batch):
+        return self.step(batch, i_batch)
+    
+    def on_train_epoch_end(self):
+        self._on_epoch_end()
+        
+    def on_test_epoch_end(self):
+        self._on_epoch_end()
+    
+    def step(self, batch, i_batch):
+        images = batch["image"].to(self.device)
+        outs = {
+            "phase": "train" if self.training else "val",
+            "labels": batch["is_real"][:, 0].float().to(self.device),
+        }
+        outs.update(self(images))
+        if self.num_classes == 2:
+            outs["loss"] = F.binary_cross_entropy_with_logits(input=outs["logits"][:, 0], target=outs["labels"], pos_weight=torch.as_tensor(self.pos_weight, device=self.device))
         else:
-            # binary case
-            logits = logits[:, 0]
-            if self.training:
-                return logits
-            return torch.sigmoid(logits)
+            raise NotImplementedError("Only binary classification is implemented!")
+        # transfer each tensor to cpu previous to saving them
+        for k in outs:
+            if (not "loss" in k) and isinstance(outs[k], torch.Tensor):
+                outs[k] = outs[k].detach().cpu()
+        # saves the outputs
+        self.epoch_outs.append(outs)
+        return outs
+    
+    def _on_epoch_start(self):
+        self.epoch_outs = []
+    
+    def _on_epoch_end(self):
+        with torch.no_grad():
+            indices = range(len(self.epoch_outs))
+            labels = torch.cat([self.epoch_outs[i]["labels"] for i in indices], dim=0)
+            logits = torch.cat([self.epoch_outs[i]["logits"] for i in indices], dim=0)[:, 0]
+            [self.epoch_outs[i].pop("logits") for i in indices]
+            for phase in ["train", "val"]:
+                indices_phase = [i for i in indices if self.epoch_outs[i]["phase"] == phase]
+                metrics = {
+                    "acc": accuracy(preds=logits[indices_phase], target=labels[indices_phase], task="binary", average="micro"),
+                    "auc": auroc(preds=logits[indices_phase], target=labels[indices_phase].long(), task="binary", average="micro"),
+                }
+                for metric in metrics:
+                    self.log(name=f"{phase}/{metric}", value=metrics[metric], prog_bar=True, logger=True)
+         
         
 if __name__ == "__main__":
     model = get(labels=2)
