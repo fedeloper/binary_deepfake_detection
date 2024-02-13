@@ -95,6 +95,8 @@ class CADDM(L.LightningModule):
 
         # add a new linear layer after the backbone
         self.fc = nn.Linear(self.inplanes, num_classes if num_classes >= 3 else 1)
+        
+        self.save_hyperparameters()
     
     def forward(self, x):
         outs = {}
@@ -217,12 +219,14 @@ class CADDM(L.LightningModule):
             [self.epoch_outs[i].pop("logits") for i in indices]
             for phase in ["train", "val"]:
                 indices_phase = [i for i in indices if self.epoch_outs[i]["phase"] == phase]
+                if len(indices_phase) == 0:
+                    continue
                 metrics = {
                     "acc": accuracy(preds=logits[indices_phase], target=labels[indices_phase], task="binary", average="micro"),
                     "auc": auroc(preds=logits[indices_phase], target=labels[indices_phase].long(), task="binary", average="micro"),
                 }
                 for metric in metrics:
-                    self.log(name=f"{phase}/{metric}", value=metrics[metric], prog_bar=True, logger=True)
+                    self.log(name=f"{phase}_{metric}", value=metrics[metric], prog_bar=True, logger=True)
          
         
 if __name__ == "__main__":

@@ -1,85 +1,83 @@
 #!/usr/bin/env python3
+from pprint import pprint
 import argparse
 from collections import OrderedDict
-from sklearn.metrics import roc_auc_score
 import os
+from os.path import join
+from datetime import datetime
 
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
-from torch.utils.data import DataLoader
+from torch.utils.data import Subset, DataLoader
+from torchmetrics.functional.classification import accuracy
+import lightning as L
+from lightning.pytorch.loggers import WandbLogger
+    
+from coco_fake_dataset import COCOFakeDataset
+from dffd_dataset import DFFDDataset
 
 import model
 from detection_layers.modules import MultiBoxLoss
 from dataset import DeepfakeDataset
-from lib.util import load_config, update_learning_rate, my_collate, get_video_auc
-
+from lib.util import load_config, update_learning_rate, my_collate
+import random
+import numpy as np
 
 def args_func():
     parser = argparse.ArgumentParser()
-    parser.add_argument('--cfg', type=str, help='The path to the config.', default='./configs/caddm_test.cfg')
+    parser.add_argument('--cfg', type=str, help='The path to the config.', default='./configs/bin_caddm_train.cfg')
+    parser.add_argument('--ckpt', type=str, help='The checkpoint of the pretrained model.', default=None)
     args = parser.parse_args()
     return args
-
-
-def load_checkpoint(ckpt, net, device):
-    checkpoint = torch.load(ckpt)
-
-    gpu_state_dict = OrderedDict()
-    for k, v in checkpoint['network'] .items():
-        name = "module." + k  # add `module.` prefix
-        gpu_state_dict[name] = v.to(device)
-    net.load_state_dict(gpu_state_dict)
-    return net
-
-
-def test():
+            
+if __name__ == "__main__":
     args = args_func()
 
-    # load conifigs
+    # load configs
     cfg = load_config(args.cfg)
+    pprint(cfg)
+    
+    # preliminary setup
+    torch.manual_seed(cfg["train"]["seed"])
+    random.seed(cfg["train"]["seed"])
+    np.random.seed(cfg["train"]["seed"])
+    torch.set_float32_matmul_precision("medium")
 
-    # init model.
-    net = model.get(backbone=cfg['model']['backbone'])
-    device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
-    net = net.to(device)
-    net = nn.DataParallel(net)
-    net.eval()
-    if cfg['model']['ckpt']:
-        net = load_checkpoint(cfg['model']['ckpt'], net, device)
-
-    # get testing data
-    print(f"Load deepfake dataset from {cfg['dataset']['img_path']}..")
-    test_dataset = DeepfakeDataset('test', cfg)
+    # get data
+    if cfg["dataset"]["name"] == "coco_fake":
+        print(f"Load COCO-Fake datasets from {cfg['dataset']['coco2014_path']} and {cfg['dataset']['coco_fake_path']}")
+        test_dataset = COCOFakeDataset(coco2014_path=cfg["dataset"]["coco2014_path"], coco_fake_path=cfg["dataset"]["coco_fake_path"], split="val", mode="single", resolution=cfg["train"]["resolution"])
+    elif cfg["dataset"]["name"] == "dffd":
+        print(f"Load DFFD dataset from {cfg['dataset']['dffd_path']}")
+        test_dataset = DFFDDataset(dataset_path=cfg["dataset"]["dffd_path"], split="test", resolution=cfg["train"]["resolution"])
+    
+    # loads the dataloaders
+    num_workers = os.cpu_count() // 2
     test_loader = DataLoader(test_dataset,
-                             batch_size=cfg['test']['batch_size'],
-                             shuffle=True, num_workers=4,
-                             )
+                              batch_size=cfg['train']['batch_size'],
+                              shuffle=False, num_workers=num_workers,
+                              )
 
-    # start testing.
-    frame_pred_list = list()
-    frame_label_list = list()
-    video_name_list = list()
-
-    for batch_data, batch_labels in test_loader:
-
-        labels, video_name = batch_labels
-        labels = labels.long()
-
-        outputs = net(batch_data)
-        outputs = outputs[:, 1]
-        frame_pred_list.extend(outputs.detach().cpu().numpy().tolist())
-        frame_label_list.extend(labels.detach().cpu().numpy().tolist())
-        video_name_list.extend(list(video_name))
-
-    f_auc = roc_auc_score(frame_label_list, frame_pred_list)
-    v_auc = get_video_auc(frame_label_list, video_name_list, frame_pred_list)
-    print(f"Frame-AUC of {cfg['dataset']['name']} is {f_auc:.4f}")
-    print(f"Video-AUC of {cfg['dataset']['name']} is {v_auc:.4f}")
-
-
-if __name__ == "__main__":
-    test()
-
-# vim: ts=4 sw=4 sts=4 expandtab
+    # init model
+    net = model.CADDM.load_from_checkpoint("DFAD_CVPRW24/dffd_20240213_1123/checkpoints/epoch=4-train_acc=0.88-val_acc=0.92.ckpt")
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    net = net.to(device)
+    
+    # start training
+    date = datetime.now().strftime('%Y%m%d_%H%M')
+    project = "DFAD_CVPRW24"
+    run = cfg["dataset"]["name"] + f"_{date}"
+    logger = WandbLogger(project=project, name=run, id=run, log_model=False)
+    trainer = L.Trainer(
+        accelerator="gpu" if "cuda" in str(device) else "cpu",
+        devices=1,
+        precision="16-mixed",
+        gradient_clip_algorithm="norm",
+        gradient_clip_val=1.,
+        accumulate_grad_batches=cfg["train"]["accumulation_batches"],
+        limit_val_batches=cfg["train"]["limit_test_batches"],
+        max_epochs=cfg['train']["epoch_num"],
+        logger=logger)
+    trainer.test(model=net, dataloaders=test_loader)
