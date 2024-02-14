@@ -1,1 +1,9 @@
-pretrained/small_checkpoint.pth.tar
+__pycache__
+.conda
+wandb
+DFAD_CVPRW24
+lightning_logs
+pretrained/*.tar
+pretrained/*.pth
+*.pyc
+_*

@@ -7,7 +7,7 @@ from sklearn.metrics import roc_auc_score
 
 def load_config(config_file):
     with open(config_file, 'r') as f:
-        config = yaml.load(f)
+        config = yaml.safe_load(f)
     return config
 
 

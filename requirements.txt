@@ -1,4 +1,16 @@
 matplotlib
+pandas 
+pyarrow
+wandb
 
+opencv-python
+scipy
+scikit-learn
+scikit-image
+einops
+timm
 torch
 torchvision
+torchinfo
+torchmetrics
+lightning
