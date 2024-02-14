@@ -16,37 +16,12 @@ import timm
 import lightning as L
 from BNext.src.bnext import BNext
 
-# from backbones.caddm import CADDM
-
-
-
-def get(labels, pretrained_model=None, backbone='BNext-T', freeze_backbone=True, add_magnitude_channel=True, add_fft_channel=True, add_lbp_channel=True, pos_weight=True):
-    if backbone not in ['BNext-L', 'BNext-T', 'BNext-S','BNext-M']:
-        raise ValueError("Unsupported type of models!")
-
-    model = CADDM(num_classes=labels, backbone=backbone, freeze_backbone=freeze_backbone, 
-                  add_magnitude_channel=add_magnitude_channel, add_fft_channel=add_fft_channel, add_lbp_channel=add_lbp_channel)
-
-    # if pretrained_model:
-    #     checkpoint = torch.load(pretrained_model)
-    #     model.load_state_dict(checkpoint['network'])
-    return model
-
-def remove_data_parallel(old_state_dict):
-    new_state_dict = OrderedDict()
-
-    for k, v in old_state_dict.items():
-        name = k[7:] # remove `module.`
-        new_state_dict[name] = v
-    
-    return new_state_dict
-
-class CADDM(L.LightningModule):
+class BNext4DFR(L.LightningModule):
 
     def __init__(self, num_classes, backbone='BNext-T', 
                  freeze_backbone=True, add_magnitude_channel=True, add_fft_channel=True, add_lbp_channel=True,
                  learning_rate=1e-4, pos_weight=1.):
-        super(CADDM, self).__init__()
+        super(BNext4DFR, self).__init__()
 
         self.num_classes = num_classes
         self.learning_rate = learning_rate
@@ -57,9 +32,11 @@ class CADDM(L.LightningModule):
         size_map = {"BNext-T": "tiny", "BNext-S": "small", "BNext-M": "middle", "BNext-L": "large"}
         if backbone in size_map:
             size = size_map[backbone]
-            self.base_model = BNext(num_classes=1000, size=size)
-            checkpoint = torch.load(f"pretrained/{size}_checkpoint.pth.tar", map_location="cpu")
-            self.base_model.load_state_dict(remove_data_parallel(checkpoint))
+            # loads the pretrained model
+            self.base_model = nn.ModuleDict({"module": BNext(num_classes=1000, size=size)})
+            pretrained_state_dict = torch.load(f"pretrained/{size}_checkpoint.pth.tar", map_location="cpu")
+            self.base_model.load_state_dict(pretrained_state_dict)
+            self.base_model = self.base_model.module
         else:
             print(backbone)
             raise ValueError("Unsupported Backbone!")
@@ -123,7 +100,8 @@ class CADDM(L.LightningModule):
             [parameter for module in modules_to_train for parameter in module.parameters()], 
             lr=self.learning_rate,
             )
-        return optimizer
+        scheduler = optim.lr_scheduler.LinearLR(optimizer, start_factor=1., end_factor=0.1, total_iters=5)
+        return [optimizer], [scheduler]
     
     def _add_new_channels_worker(self, image):
         # convert the image to grayscale
@@ -194,6 +172,7 @@ class CADDM(L.LightningModule):
         outs = {
             "phase": phase,
             "labels": batch["is_real"][:, 0].float().to(self.device),
+            "learning_rate": self.optimizers().param_groups[0]["lr"],
         }
         outs.update(self(images))
         if self.num_classes == 2:
@@ -204,6 +183,8 @@ class CADDM(L.LightningModule):
         for k in outs:
             if (not "loss" in k) and isinstance(outs[k], torch.Tensor):
                 outs[k] = outs[k].detach().cpu()
+            if k in {"learning_rate", "loss"}:
+                self.log(f"{phase}_{k}", outs[k], prog_bar=False, logger=True)
         # saves the outputs
         self.epoch_outs.append(outs)
         return outs

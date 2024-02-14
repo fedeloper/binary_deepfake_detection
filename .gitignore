@@ -3,7 +3,7 @@ __pycache__
 wandb
 DFAD_CVPRW24
 lightning_logs
-pretrained/*.tar
-pretrained/*.pth
+*.tar
+*.pth
 *.pyc
 _*
