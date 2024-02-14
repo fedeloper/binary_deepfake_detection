@@ -51,12 +51,10 @@ def train():
         # train_dataset = DeepfakeDataset('train', cfg)
         train_dataset = COCOFakeDataset(coco2014_path=cfg["dataset"]["coco2014_path"], coco_fake_path=cfg["dataset"]["coco_fake_path"], split="train", mode="single", resolution=cfg["train"]["resolution"])
         val_dataset = COCOFakeDataset(coco2014_path=cfg["dataset"]["coco2014_path"], coco_fake_path=cfg["dataset"]["coco_fake_path"], split="val", mode="single", resolution=cfg["train"]["resolution"])
-        test_dataset = val_dataset
     elif cfg["dataset"]["name"] == "dffd":
         print(f"Load DFFD dataset from {cfg['dataset']['dffd_path']}")
         train_dataset = DFFDDataset(dataset_path=cfg["dataset"]["dffd_path"], split="train", resolution=cfg["train"]["resolution"])
         val_dataset = DFFDDataset(dataset_path=cfg["dataset"]["dffd_path"], split="val", resolution=cfg["train"]["resolution"])
-        test_dataset = DFFDDataset(dataset_path=cfg["dataset"]["dffd_path"], split="test", resolution=cfg["train"]["resolution"])
     
     # loads the dataloaders
     num_workers = os.cpu_count() // 2
@@ -65,10 +63,6 @@ def train():
                               shuffle=True, num_workers=num_workers,
                               )
     val_loader = DataLoader(val_dataset,
-                              batch_size=cfg['train']['batch_size'],
-                              shuffle=False, num_workers=num_workers,
-                              )
-    test_loader = DataLoader(test_dataset,
                               batch_size=cfg['train']['batch_size'],
                               shuffle=False, num_workers=num_workers,
                               )
@@ -88,7 +82,7 @@ def train():
     trainer = L.Trainer(
         accelerator="gpu" if "cuda" in str(device) else "cpu",
         devices=1,
-        precision="16-mixed",
+        precision="16-mixed" if cfg["train"]["mixed_precision"] else 32,
         gradient_clip_algorithm="norm",
         gradient_clip_val=1.,
         accumulate_grad_batches=cfg["train"]["accumulation_batches"],
@@ -101,7 +95,6 @@ def train():
             )],
         logger=logger)
     trainer.fit(model=net, train_dataloaders=train_loader, val_dataloaders=val_loader)
-    # trainer.test(model=net, dataloaders=test_loader)
 
 
 if __name__ == "__main__":

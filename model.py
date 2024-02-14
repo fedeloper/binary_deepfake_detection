@@ -175,13 +175,13 @@ class CADDM(L.LightningModule):
         self._on_epoch_start()
         
     def training_step(self, batch, i_batch):
-        return self.step(batch, i_batch)
+        return self.step(batch, i_batch, phase="train")
     
     def validation_step(self, batch, i_batch):
-        return self.step(batch, i_batch)
+        return self.step(batch, i_batch, phase="val")
     
     def test_step(self, batch, i_batch):
-        return self.step(batch, i_batch)
+        return self.step(batch, i_batch, phase="test")
     
     def on_train_epoch_end(self):
         self._on_epoch_end()
@@ -189,10 +189,10 @@ class CADDM(L.LightningModule):
     def on_test_epoch_end(self):
         self._on_epoch_end()
     
-    def step(self, batch, i_batch):
+    def step(self, batch, i_batch, phase=None):
         images = batch["image"].to(self.device)
         outs = {
-            "phase": "train" if self.training else "val",
+            "phase": phase,
             "labels": batch["is_real"][:, 0].float().to(self.device),
         }
         outs.update(self(images))
@@ -213,14 +213,15 @@ class CADDM(L.LightningModule):
     
     def _on_epoch_end(self):
         with torch.no_grad():
-            indices = range(len(self.epoch_outs))
-            labels = torch.cat([self.epoch_outs[i]["labels"] for i in indices], dim=0)
-            logits = torch.cat([self.epoch_outs[i]["logits"] for i in indices], dim=0)[:, 0]
-            [self.epoch_outs[i].pop("logits") for i in indices]
-            for phase in ["train", "val"]:
-                indices_phase = [i for i in indices if self.epoch_outs[i]["phase"] == phase]
+            labels = torch.cat([batch["labels"] for batch in self.epoch_outs], dim=0)
+            logits = torch.cat([batch["logits"] for batch in self.epoch_outs], dim=0)[:, 0]
+            phases = [phase for batch in self.epoch_outs for phase in [batch["phase"]] * len(batch["labels"])]
+            assert len(labels) == len(logits), f"{len(labels)} != {len(logits)}"
+            assert len(phases) == len(labels), f"{len(phases)} != {len(labels)}"
+            for phase in ["train", "val", "test"]:
+                indices_phase = [i for i in range(len(phases)) if phases[i] == phase]
                 if len(indices_phase) == 0:
-                    continue
+                    continue                
                 metrics = {
                     "acc": accuracy(preds=logits[indices_phase], target=labels[indices_phase], task="binary", average="micro"),
                     "auc": auroc(preds=logits[indices_phase], target=labels[indices_phase].long(), task="binary", average="micro"),

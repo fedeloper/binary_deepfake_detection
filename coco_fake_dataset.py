@@ -67,16 +67,18 @@ class COCOFakeDataset(Dataset):
                 T.RandomChoice([
                     T.RandomRotation(degrees=(-90, -90)),
                     T.RandomRotation(degrees=(90, 90)),
-                    ], p=0.5),
+                    ], p=[0.5, 0.5]),
                 T.RandomCrop(self.resolution),
                 T.ColorJitter(brightness=0.2, contrast=0.2, saturation=0.2, hue=0.2),
-                T.ToTensor(),
+                T.ToImage(),
+                T.ToDtype(torch.float32, scale=True),
                 ])
         else:
             transforms = T.Compose([
                 T.Resize(self.resolution + self.resolution // 8, interpolation=T.InterpolationMode.BILINEAR),
                 T.CenterCrop(self.resolution),
-                T.ToTensor(),
+                T.ToImage(),
+                T.ToDtype(torch.float32, scale=True),
             ])
         image = transforms(image)
         return image

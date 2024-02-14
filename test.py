@@ -40,28 +40,28 @@ if __name__ == "__main__":
     pprint(cfg)
     
     # preliminary setup
-    torch.manual_seed(cfg["train"]["seed"])
-    random.seed(cfg["train"]["seed"])
-    np.random.seed(cfg["train"]["seed"])
+    torch.manual_seed(cfg["test"]["seed"])
+    random.seed(cfg["test"]["seed"])
+    np.random.seed(cfg["test"]["seed"])
     torch.set_float32_matmul_precision("medium")
 
     # get data
     if cfg["dataset"]["name"] == "coco_fake":
         print(f"Load COCO-Fake datasets from {cfg['dataset']['coco2014_path']} and {cfg['dataset']['coco_fake_path']}")
-        test_dataset = COCOFakeDataset(coco2014_path=cfg["dataset"]["coco2014_path"], coco_fake_path=cfg["dataset"]["coco_fake_path"], split="val", mode="single", resolution=cfg["train"]["resolution"])
+        test_dataset = COCOFakeDataset(coco2014_path=cfg["dataset"]["coco2014_path"], coco_fake_path=cfg["dataset"]["coco_fake_path"], split="val", mode="single", resolution=cfg["test"]["resolution"])
     elif cfg["dataset"]["name"] == "dffd":
         print(f"Load DFFD dataset from {cfg['dataset']['dffd_path']}")
-        test_dataset = DFFDDataset(dataset_path=cfg["dataset"]["dffd_path"], split="test", resolution=cfg["train"]["resolution"])
+        test_dataset = DFFDDataset(dataset_path=cfg["dataset"]["dffd_path"], split="test", resolution=cfg["test"]["resolution"])
     
     # loads the dataloaders
     num_workers = os.cpu_count() // 2
     test_loader = DataLoader(test_dataset,
-                              batch_size=cfg['train']['batch_size'],
+                              batch_size=cfg['test']['batch_size'],
                               shuffle=False, num_workers=num_workers,
                               )
 
     # init model
-    net = model.CADDM.load_from_checkpoint("DFAD_CVPRW24/dffd_20240213_1123/checkpoints/epoch=4-train_acc=0.88-val_acc=0.92.ckpt")
+    net = model.CADDM.load_from_checkpoint(cfg["test"]["checkpoint_path"])
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     net = net.to(device)
     
@@ -73,11 +73,11 @@ if __name__ == "__main__":
     trainer = L.Trainer(
         accelerator="gpu" if "cuda" in str(device) else "cpu",
         devices=1,
-        precision="16-mixed",
+        precision="16-mixed" if cfg["train"]["mixed_precision"] else 32,
         gradient_clip_algorithm="norm",
         gradient_clip_val=1.,
-        accumulate_grad_batches=cfg["train"]["accumulation_batches"],
-        limit_val_batches=cfg["train"]["limit_test_batches"],
-        max_epochs=cfg['train']["epoch_num"],
+        accumulate_grad_batches=cfg["test"]["accumulation_batches"],
+        limit_test_batches=cfg["test"]["limit_test_batches"],
+        max_epochs=cfg['test']["epoch_num"],
         logger=logger)
     trainer.test(model=net, dataloaders=test_loader)
