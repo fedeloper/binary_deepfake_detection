@@ -1,7 +1,4 @@
-#!/usr/bin/env python3
-import torch
-#!/usr/bin/env python3
-from collections import OrderedDict
+import gc
 import cv2 as cv
 import numpy as np 
 import einops
@@ -105,7 +102,7 @@ class BNext4DFR(L.LightningModule):
     
     def _add_new_channels_worker(self, image):
         # convert the image to grayscale
-        gray = cv.cvtColor((image * 255).astype(np.uint8), cv.COLOR_BGR2GRAY)
+        gray = cv.cvtColor((image.cpu().numpy() * 255).astype(np.uint8), cv.COLOR_BGR2GRAY)
         
         new_channels = []
         if self.add_magnitude_channel:
@@ -130,20 +127,19 @@ class BNext4DFR(L.LightningModule):
             new_channels.append(lbp)
 
         new_channels = np.stack(new_channels, axis=2) / 255
-        return new_channels
+        return torch.from_numpy(new_channels).to(self.device).float()
         
     def add_new_channels(self, images):
-        device = images.device
         #copy the input image to avoid modifying the originalu
-        images_copied = einops.rearrange(images.clone().cpu().numpy(), "b c h w -> b h w c")
+        images_copied = einops.rearrange(images, "b c h w -> b h w c")
         
         # parallelize over each image in the batch using pool
-        new_channels = np.stack([self._add_new_channels_worker(image) for image in images_copied], axis=0)
+        new_channels = torch.stack([self._add_new_channels_worker(image) for image in images_copied], dim=0)
         
         # concatenates the new channels to the input image in the channel dimension
-        images_copied = np.concatenate([images_copied, new_channels], axis=-1)
+        images_copied = torch.concatenate([images_copied, new_channels], dim=-1)
         # cast img again to torch tensor and then reshape to (B, C, H, W)
-        images_copied = einops.rearrange(torch.from_numpy(images_copied).float().to(device), "b h w c -> b c h w")
+        images_copied = einops.rearrange(images_copied, "b h w c -> b c h w")
         return images_copied
     
     def on_train_epoch_start(self):
@@ -190,9 +186,11 @@ class BNext4DFR(L.LightningModule):
         return outs
     
     def _on_epoch_start(self):
+        self._clear_memory()
         self.epoch_outs = []
     
     def _on_epoch_end(self):
+        self._clear_memory()
         with torch.no_grad():
             labels = torch.cat([batch["labels"] for batch in self.epoch_outs], dim=0)
             logits = torch.cat([batch["logits"] for batch in self.epoch_outs], dim=0)[:, 0]
@@ -209,6 +207,10 @@ class BNext4DFR(L.LightningModule):
                 }
                 for metric in metrics:
                     self.log(name=f"{phase}_{metric}", value=metrics[metric], prog_bar=True, logger=True)
+                    
+    def _clear_memory(self):
+        gc.collect()
+        torch.cuda.empty_cache()
          
         
 if __name__ == "__main__":

@@ -4,6 +4,7 @@ import os
 from datetime import datetime
 import random
 import numpy as np
+import gc
 
 import torch
 from torch.utils.data import DataLoader
@@ -28,9 +29,13 @@ def args_func():
     )
     args = parser.parse_args()
     return args
+    
 
 
-def train():
+if __name__ == "__main__":
+    gc.collect()
+    torch.cuda.empty_cache()
+    
     args = args_func()
 
     # load configs
@@ -109,7 +114,8 @@ def train():
     # start training
     date = datetime.now().strftime("%Y%m%d_%H%M")
     project = "DFAD_CVPRW24"
-    run = cfg["dataset"]["name"] + f"_{date}"
+    run_label = args.cfg.split("/")[-1].split(".")[0]
+    run = cfg["dataset"]["name"] + f"_{date}_{run_label}"
     logger = WandbLogger(project=project, name=run, id=run, log_model=False)
     trainer = L.Trainer(
         accelerator="gpu" if "cuda" in str(device) else "cpu",
@@ -132,7 +138,3 @@ def train():
         logger=logger,
     )
     trainer.fit(model=net, train_dataloaders=train_loader, val_dataloaders=val_loader)
-
-
-if __name__ == "__main__":
-    train()
