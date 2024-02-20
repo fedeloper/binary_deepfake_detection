@@ -150,13 +150,13 @@ if __name__ == "__main__":
             for freeze_backbone in [True, False]:
                 configs += [
                     {
-                        "name": f"results_{dataset}_{model_name}{'_unfrozen' if freeze_backbone else ''}",
+                        "name": f"results_{dataset}_{model_name}{'_unfrozen' if not freeze_backbone else ''}",
                         "changes": {
                             "model": {
                                 "add_fft_channel": True,
                                 "add_lbp_channel": True,
                                 "backbone": "BNext-T",
-                                "freeze_backbone": False,
+                                "freeze_backbone": freeze_backbone,
                             },
                             "train": {
                                 "accumulation_batches": 4,
