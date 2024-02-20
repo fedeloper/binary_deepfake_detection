@@ -82,7 +82,7 @@ if __name__ == "__main__":
         )
 
     # loads the dataloaders
-    num_workers = os.cpu_count() // 2
+    num_workers = 4
     train_loader = DataLoader(
         train_dataset,
         batch_size=cfg["train"]["batch_size"],

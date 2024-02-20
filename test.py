@@ -66,7 +66,7 @@ if __name__ == "__main__":
         )
 
     # loads the dataloaders
-    num_workers = os.cpu_count() // 2
+    num_workers = 4
     test_loader = DataLoader(
         test_dataset,
         batch_size=cfg["test"]["batch_size"],
