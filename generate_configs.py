@@ -155,7 +155,7 @@ if __name__ == "__main__":
                             "model": {
                                 "add_fft_channel": True,
                                 "add_lbp_channel": True,
-                                "backbone": "BNext-T",
+                                "backbone": f"BNext-{model_name}",
                                 "freeze_backbone": freeze_backbone,
                             },
                             "train": {
