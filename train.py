@@ -88,12 +88,14 @@ if __name__ == "__main__":
         batch_size=cfg["train"]["batch_size"],
         shuffle=True,
         num_workers=num_workers,
+        pin_memory=True,
     )
     val_loader = DataLoader(
         val_dataset,
         batch_size=cfg["train"]["batch_size"],
         shuffle=False,
         num_workers=num_workers,
+        pin_memory=True,
     )
 
     # init model

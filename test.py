@@ -72,6 +72,7 @@ if __name__ == "__main__":
         batch_size=cfg["test"]["batch_size"],
         shuffle=False,
         num_workers=num_workers,
+        pin_memory=True,
     )
 
     # init model

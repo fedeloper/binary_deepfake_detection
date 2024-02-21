@@ -106,25 +106,15 @@ class BNext4DFR(L.LightningModule):
         
         new_channels = []
         if self.add_magnitude_channel:
-            # calculate x and y gradients using sobel operator
-            sobelx = cv.Sobel(gray,cv.CV_64F,1,0,ksize=7)
-            sobely = cv.Sobel(gray,cv.CV_64F,0,1,ksize=7)
-            
-            # calculate magnitude of the gradients
-            magnitude = np.sqrt(sobelx**2 + sobely**2) 
-            new_channels.append(magnitude)
+            new_channels.append(np.sqrt(cv.Sobel(gray,cv.CV_64F,1,0,ksize=7)**2 + cv.Sobel(gray,cv.CV_64F,0,1,ksize=7)**2) )
         
         #if fast_fourier is required, calculate it
         if self.add_fft_channel:
-            f = np.fft.fft2(gray)
-            fshift = np.fft.fftshift(f)
-            fft_spectrum = 20*np.log(np.abs(fshift) + 1e-9)
-            new_channels.append(fft_spectrum)
+            new_channels.append(20*np.log(np.abs(np.fft.fftshift(np.fft.fft2(gray))) + 1e-9))
         
         #if localbinary pattern is required, calculate it
         if self.add_lbp_channel:
-            lbp = feature.local_binary_pattern(gray, 3, 6, method='uniform')
-            new_channels.append(lbp)
+            new_channels.append(feature.local_binary_pattern(gray, 3, 6, method='uniform'))
 
         new_channels = np.stack(new_channels, axis=2) / 255
         return torch.from_numpy(new_channels).to(self.device).float()
@@ -181,9 +171,11 @@ class BNext4DFR(L.LightningModule):
                 outs[k] = outs[k].detach().cpu()
             if k in {"learning_rate", "loss"}:
                 self.log(f"{phase}_{k}", outs[k], prog_bar=False, logger=True)
+        if k in {"learning_rate"}:
+            outs.pop(k)
         # saves the outputs
         self.epoch_outs.append(outs)
-        return outs
+        return outs["loss"]
     
     def _on_epoch_start(self):
         self._clear_memory()

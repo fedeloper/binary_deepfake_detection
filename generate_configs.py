@@ -42,7 +42,7 @@ if __name__ == "__main__":
             "name": "coco_fake",
             "coco2014_path": "../../datasets/coco2014",
             "coco_fake_path": "../../datasets/fake_coco",
-            "cifake": "../../datasets/cifake",
+            "cifake_path": "../../datasets/cifake",
             "dffd_path": "../../datasets/dffd",
             "labels": 2,
         },
@@ -54,8 +54,8 @@ if __name__ == "__main__":
             "backbone": "BNext-T",
         },
         "train": {
-            "batch_size": 128,
-            "accumulation_batches": 1,
+            "batch_size": 32,
+            "accumulation_batches": 4,
             "mixed_precision": True,
             "epoch_num": 5,
             "limit_train_batches": 1.0,
@@ -65,8 +65,8 @@ if __name__ == "__main__":
         },
         "test": {
             "checkpoint_path": None,
-            "batch_size": 128,
-            "accumulation_batches": 1,
+            "batch_size": 32,
+            "accumulation_batches": 4,
             "mixed_precision": True,
             "epoch_num": 5,
             "limit_test_batches": 1.0,
@@ -152,6 +152,7 @@ if __name__ == "__main__":
                     {
                         "name": f"results_{dataset}_{model_name}{'_unfrozen' if not freeze_backbone else ''}",
                         "changes": {
+                            "dataset": {"name": dataset},
                             "model": {
                                 "add_fft_channel": True,
                                 "add_lbp_channel": True,
