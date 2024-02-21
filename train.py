@@ -10,6 +10,7 @@ import torch
 from torch.utils.data import DataLoader
 import lightning as L
 from lightning.pytorch.loggers import WandbLogger
+from cifake_dataset import CIFAKEDataset
 
 from coco_fake_dataset import COCOFakeDataset
 from dffd_dataset import DFFDDataset
@@ -51,7 +52,7 @@ if __name__ == "__main__":
     # get data
     if cfg["dataset"]["name"] == "coco_fake":
         print(
-            f"Load COCO-Fake datasets from {cfg['dataset']['coco2014_path']} and {cfg['dataset']['coco_fake_path']}"
+            f"Loading COCO-Fake datasets from {cfg['dataset']['coco2014_path']} and {cfg['dataset']['coco_fake_path']}"
         )
         # train_dataset = DeepfakeDataset('train', cfg)
         train_dataset = COCOFakeDataset(
@@ -69,7 +70,7 @@ if __name__ == "__main__":
             resolution=cfg["train"]["resolution"],
         )
     elif cfg["dataset"]["name"] == "dffd":
-        print(f"Load DFFD dataset from {cfg['dataset']['dffd_path']}")
+        print(f"Loading DFFD dataset from {cfg['dataset']['dffd_path']}")
         train_dataset = DFFDDataset(
             dataset_path=cfg["dataset"]["dffd_path"],
             split="train",
@@ -78,6 +79,18 @@ if __name__ == "__main__":
         val_dataset = DFFDDataset(
             dataset_path=cfg["dataset"]["dffd_path"],
             split="val",
+            resolution=cfg["train"]["resolution"],
+        )
+    elif cfg["dataset"]["name"] == "cifake":
+        print(f"Loading CIFAKE dataset from {cfg['dataset']['cifake_path']}")
+        train_dataset = CIFAKEDataset(
+            dataset_path=cfg["dataset"]["cifake_path"],
+            split="train",
+            resolution=cfg["train"]["resolution"],
+        )
+        val_dataset = CIFAKEDataset(
+            dataset_path=cfg["dataset"]["cifake_path"],
+            split="test",
             resolution=cfg["train"]["resolution"],
         )
 

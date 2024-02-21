@@ -7,6 +7,7 @@ import torch
 from torch.utils.data import DataLoader
 import lightning as L
 from lightning.pytorch.loggers import WandbLogger
+from cifake_dataset import CIFAKEDataset
 
 from coco_fake_dataset import COCOFakeDataset
 from dffd_dataset import DFFDDataset
@@ -63,6 +64,13 @@ if __name__ == "__main__":
             dataset_path=cfg["dataset"]["dffd_path"],
             split="test",
             resolution=cfg["test"]["resolution"],
+        )
+    elif cfg["dataset"]["name"] == "cifake":
+        print(f"Loading CIFAKE dataset from {cfg['dataset']['cifake_path']}")
+        test_dataset = CIFAKEDataset(
+            dataset_path=cfg["dataset"]["cifake_path"],
+            split="test",
+            resolution=cfg["train"]["resolution"],
         )
 
     # loads the dataloaders
