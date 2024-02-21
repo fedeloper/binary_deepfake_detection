@@ -162,20 +162,18 @@ class BNext4DFR(L.LightningModule):
         }
         outs.update(self(images))
         if self.num_classes == 2:
-            outs["loss"] = F.binary_cross_entropy_with_logits(input=outs["logits"][:, 0], target=outs["labels"], pos_weight=torch.as_tensor(self.pos_weight, device=self.device))
+            loss = F.binary_cross_entropy_with_logits(input=outs["logits"][:, 0], target=outs["labels"], pos_weight=torch.as_tensor(self.pos_weight, device=self.device))
+            outs["loss"] = loss.detach().cpu()
         else:
             raise NotImplementedError("Only binary classification is implemented!")
         # transfer each tensor to cpu previous to saving them
         for k in outs:
-            if (not "loss" in k) and isinstance(outs[k], torch.Tensor):
+            if isinstance(outs[k], torch.Tensor):
                 outs[k] = outs[k].detach().cpu()
-            if k in {"learning_rate", "loss"}:
-                self.log(f"{phase}_{k}", outs[k], prog_bar=False, logger=True)
-        if k in {"learning_rate"}:
-            outs.pop(k)
+        self.log_dict({f"{phase}_{k}": v for k, v in outs.items() if k in {"loss", "learning_rate"}}, prog_bar=False, logger=True)
         # saves the outputs
         self.epoch_outs.append(outs)
-        return outs["loss"]
+        return loss
     
     def _on_epoch_start(self):
         self._clear_memory()
@@ -197,8 +195,7 @@ class BNext4DFR(L.LightningModule):
                     "acc": accuracy(preds=logits[indices_phase], target=labels[indices_phase], task="binary", average="micro"),
                     "auc": auroc(preds=logits[indices_phase], target=labels[indices_phase].long(), task="binary", average="micro"),
                 }
-                for metric in metrics:
-                    self.log(name=f"{phase}_{metric}", value=metrics[metric], prog_bar=True, logger=True)
+                self.log_dict({f"{phase}_{k}": v for k, v in metrics.items() if isinstance(v, (torch.Tensor, int, float))}, prog_bar=True, logger=True)
                     
     def _clear_memory(self):
         gc.collect()
