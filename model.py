@@ -158,19 +158,17 @@ class BNext4DFR(L.LightningModule):
         outs = {
             "phase": phase,
             "labels": batch["is_real"][:, 0].float().to(self.device),
-            "learning_rate": self.optimizers().param_groups[0]["lr"],
         }
         outs.update(self(images))
         if self.num_classes == 2:
             loss = F.binary_cross_entropy_with_logits(input=outs["logits"][:, 0], target=outs["labels"], pos_weight=torch.as_tensor(self.pos_weight, device=self.device))
-            outs["loss"] = loss.detach().cpu()
         else:
             raise NotImplementedError("Only binary classification is implemented!")
         # transfer each tensor to cpu previous to saving them
         for k in outs:
             if isinstance(outs[k], torch.Tensor):
                 outs[k] = outs[k].detach().cpu()
-        self.log_dict({f"{phase}_{k}": v for k, v in outs.items() if k in {"loss", "learning_rate"}}, prog_bar=False, logger=True)
+        self.log_dict({f"{phase}_{k}": v for k, v in [("loss", loss.detach().cpu()), ("learning_rate", self.optimizers().param_groups[0]["lr"])]}, prog_bar=False, logger=True)
         # saves the outputs
         self.epoch_outs.append(outs)
         return loss
