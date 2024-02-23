@@ -66,9 +66,7 @@ if __name__ == "__main__":
         "test": {
             "checkpoint_path": None,
             "batch_size": 32,
-            "accumulation_batches": 4,
             "mixed_precision": True,
-            "epoch_num": 5,
             "limit_test_batches": 1.0,
             "resolution": 224,
             "seed": 5,
@@ -162,6 +160,7 @@ if __name__ == "__main__":
                             "train": {
                                 "accumulation_batches": 4,
                                 "batch_size": 32,
+                                "epoch_num": 5 if dataset in {"coco_fake", "dffd"} else 10,
                             }
                         },
                     }

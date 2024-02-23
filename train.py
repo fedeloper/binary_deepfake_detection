@@ -147,7 +147,7 @@ if __name__ == "__main__":
                 monitor="val_acc",
                 save_top_k=1,
                 mode="max",
-                filename="{epoch}-{train_acc:.2f}-{val_acc:.2f}",
+                filename= cfg["dataset"]["name"] + "_" + cfg["model"]["backbone"] + "_{epoch}-{train_acc:.2f}-{val_acc:.2f}",
             )
         ],
         logger=logger,
