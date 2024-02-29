@@ -1,6 +1,7 @@
 from pprint import pprint
 import argparse
-import os
+import gc
+from os.path import join
 from datetime import datetime
 
 import torch
@@ -70,7 +71,7 @@ if __name__ == "__main__":
         test_dataset = CIFAKEDataset(
             dataset_path=cfg["dataset"]["cifake_path"],
             split="test",
-            resolution=cfg["train"]["resolution"],
+            resolution=cfg["test"]["resolution"],
         )
 
     # loads the dataloaders
@@ -84,24 +85,21 @@ if __name__ == "__main__":
     )
 
     # init model
-    net = model.BNext4DFR.load_from_checkpoint(cfg["test"]["checkpoint_path"])
+    net = model.BNext4DFR.load_from_checkpoint(join(cfg["test"]["weights_path"], f"{cfg['dataset']['name']}_{cfg['model']['backbone'][-1]}{'_unfrozen' if not cfg['model']['freeze_backbone'] else ''}.ckpt"))
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     net = net.to(device)
 
     # start training
     date = datetime.now().strftime("%Y%m%d_%H%M")
     project = "DFAD_CVPRW24"
-    run = cfg["dataset"]["name"] + f"_{date}"
+    run_label = args.cfg.split("/")[-1].split(".")[0]
+    run = cfg["dataset"]["name"] + f"_test_{date}_{run_label}"
     logger = WandbLogger(project=project, name=run, id=run, log_model=False)
     trainer = L.Trainer(
         accelerator="gpu" if "cuda" in str(device) else "cpu",
         devices=1,
-        precision="16-mixed" if cfg["train"]["mixed_precision"] else 32,
-        gradient_clip_algorithm="norm",
-        gradient_clip_val=1.0,
-        accumulate_grad_batches=cfg["test"]["accumulation_batches"],
+        precision="16-mixed" if cfg["test"]["mixed_precision"] else 32,
         limit_test_batches=cfg["test"]["limit_test_batches"],
-        max_epochs=cfg["test"]["epoch_num"],
         logger=logger,
     )
     trainer.test(model=net, dataloaders=test_loader)

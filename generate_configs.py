@@ -64,8 +64,8 @@ if __name__ == "__main__":
             "seed": 5,
         },
         "test": {
-            "checkpoint_path": None,
-            "batch_size": 32,
+            "weights_path": "./weights",
+            "batch_size": 128,
             "mixed_precision": True,
             "limit_test_batches": 1.0,
             "resolution": 224,

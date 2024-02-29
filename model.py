@@ -11,6 +11,8 @@ import torch.nn.functional as F
 from torchmetrics.functional.classification import accuracy, auroc
 import timm
 import lightning as L
+from fvcore.nn import FlopCountAnalysis, parameter_count
+
 from BNext.src.bnext import BNext
 
 class BNext4DFR(L.LightningModule):
@@ -132,6 +134,12 @@ class BNext4DFR(L.LightningModule):
         images_copied = einops.rearrange(images_copied, "b h w c -> b c h w")
         return images_copied
     
+    def on_train_start(self):
+        return self._on_start()
+    
+    def on_test_start(self):
+        return self._on_start()
+    
     def on_train_epoch_start(self):
         self._on_epoch_start()
         
@@ -139,13 +147,13 @@ class BNext4DFR(L.LightningModule):
         self._on_epoch_start()
         
     def training_step(self, batch, i_batch):
-        return self.step(batch, i_batch, phase="train")
+        return self._step(batch, i_batch, phase="train")
     
     def validation_step(self, batch, i_batch):
-        return self.step(batch, i_batch, phase="val")
+        return self._step(batch, i_batch, phase="val")
     
     def test_step(self, batch, i_batch):
-        return self.step(batch, i_batch, phase="test")
+        return self._step(batch, i_batch, phase="test")
     
     def on_train_epoch_end(self):
         self._on_epoch_end()
@@ -153,7 +161,7 @@ class BNext4DFR(L.LightningModule):
     def on_test_epoch_end(self):
         self._on_epoch_end()
     
-    def step(self, batch, i_batch, phase=None):
+    def _step(self, batch, i_batch, phase=None):
         images = batch["image"].to(self.device)
         outs = {
             "phase": phase,
@@ -168,11 +176,24 @@ class BNext4DFR(L.LightningModule):
         for k in outs:
             if isinstance(outs[k], torch.Tensor):
                 outs[k] = outs[k].detach().cpu()
-        self.log_dict({f"{phase}_{k}": v for k, v in [("loss", loss.detach().cpu()), ("learning_rate", self.optimizers().param_groups[0]["lr"])]}, prog_bar=False, logger=True)
+        if phase in {"train", "val"}:
+            self.log_dict({f"{phase}_{k}": v for k, v in [("loss", loss.detach().cpu()), ("learning_rate", self.optimizers().param_groups[0]["lr"])]}, prog_bar=False, logger=True)
+        else:
+            self.log_dict({f"{phase}_{k}": v for k, v in [("loss", loss.detach().cpu())]}, prog_bar=False, logger=True)
         # saves the outputs
         self.epoch_outs.append(outs)
         return loss
     
+    def _on_start(self):
+        with torch.no_grad():
+            flops = FlopCountAnalysis(self, torch.randn(1, 3, 224, 224, device=self.device))
+            parameters = parameter_count(self)[""]
+            self.log_dict({
+                "flops": flops.total(),
+                "parameters": parameters
+                }, prog_bar=True, logger=True)
+            
+        
     def _on_epoch_start(self):
         self._clear_memory()
         self.epoch_outs = []
@@ -201,6 +222,6 @@ class BNext4DFR(L.LightningModule):
          
         
 if __name__ == "__main__":
-    model = get(labels=2)
+    model = BNext4DFR(num_classes=2)
     # runs a dummy forward pass to check if the model is working properly
     model(torch.randn(8, 3, 224, 224))
