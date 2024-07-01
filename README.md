@@ -1,6 +1,6 @@
 # Faster Than Lies: Real-time Deepfake Detection using Binary Neural Networks
-|[arXiv](https://arxiv.org/abs/2406.04932)|[Proceedings](https://openaccess.thecvf.com/content/CVPR2024W/DFAD/html/Lanzino_Faster_Than_Lies_Real-time_Deepfake_Detection_using_Binary_Neural_Networks_CVPRW_2024_paper.html)|
-| ------------- | ------------- |
+|[arXiv](https://arxiv.org/abs/2406.04932)|[Proceedings](https://openaccess.thecvf.com/content/CVPR2024W/DFAD/html/Lanzino_Faster_Than_Lies_Real-time_Deepfake_Detection_using_Binary_Neural_Networks_CVPRW_2024_paper.html)|[Weights](https://drive.google.com/drive/folders/1rYtfozcq5eXK1a8tP8ouXrBFZs1e72dV?usp=drive_link)|
+| ------------- | ------------- | ------------- |
 
 Welcome to the repository of the CVPRW24 paper.
 The authors are Romeo Lanzino, Federico Fontana, Anxhelo Diko, Marco Raoul Marini, Luigi Cinque, from Sapienza University of Rome, Italy.
@@ -18,7 +18,7 @@ Here you can also find the presentation held on June 17th 2024, alongside [the p
 ## Running the code
 To train a model, create a new configuration copying and editing the default ones in the `configs` folder. When you have created a new configuration, run the training using `python train.py --cfg <PATH_TO_YOUR_CONFIGURATION>`
 
-To test the model, do the same as before but use the `test.py` script: `python test.py --cfg <PATH_TO_YOUR_CONFIGURATION>`
+To test the model, do the same as before but use the `test.py` script: `python test.py --cfg <PATH_TO_YOUR_CONFIGURATION>`. Weights can be downloaded from [here](https://drive.google.com/drive/folders/1rYtfozcq5eXK1a8tP8ouXrBFZs1e72dV?usp=drive_link).
 
 ## Citing
 If you want to cite our paper, please do it using the following format:
